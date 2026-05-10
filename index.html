@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>商机看板</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #1a1a1a; min-height: 100vh; }
+
+.header { background: linear-gradient(135deg, #1a1a2e, #2d3a8c); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 15px; font-weight: 700; color: #fff; }
+.header h1 span { font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.6); margin-left: 8px; }
+.header-right { display: flex; gap: 8px; }
+.btn { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.15); color: #fff; font-size: 12px; cursor: pointer; }
+
+.board { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px 24px 40px; }
+
+.col-header { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.left-hd { border-left: 4px solid #f5a623; }
+.right-hd { border-left: 4px solid #2d3a8c; }
+.col-count { background: #f0f0f0; border-radius: 20px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+.left-hd .col-count { color: #f5a623; background: rgba(245,166,35,0.1); }
+.right-hd .col-count { color: #2d3a8c; background: rgba(45,58,140,0.1); }
+.col-title { font-size: 13px; font-weight: 700; }
+
+.lead-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 11px 13px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.lead-card:hover { border-color: #2d3a8c; box-shadow: 0 2px 10px rgba(45,58,140,0.1); }
+.lead-card .text { font-size: 12px; color: #555; line-height: 1.5; margin-bottom: 7px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lead-card .meta { font-size: 10px; color: #aaa; margin-bottom: 7px; }
+.lead-card .footer { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.lead-card .btn-action { padding: 4px 9px; border-radius: 6px; border: none; cursor: pointer; font-size: 11px; font-weight: 600; }
+.btn-transfer { background: linear-gradient(135deg, #2d3a8c, #764ba2); color: #fff; }
+.btn-undo { background: #f5f5f5; color: #888; border: 1px solid #ddd; }
+.btn-url { display: inline-block; padding: 5px 12px; background: #95BF47; color: #fff; border-radius: 6px; font-size: 11px; font-weight: 700; text-decoration: none; cursor: pointer; flex: 1; text-align: center; min-width: 100px; }
+.btn-url:hover { background: #7aa33c; }
+
+.empty-col { border: 2px dashed #e0e0e0; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 12px; min-height: 100px; background: #fff; }
+
+.toast { position: fixed; bottom: 24px; right: 24px; background: #fff; border: 1px solid #2d3a8c; border-radius: 10px; padding: 11px 16px; font-size: 12px; color: #333; z-index: 1001; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+.toast.show { display: block; animation: fadeUp 0.3s ease; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+.debug-bar { background: #fff3cd; border-bottom: 1px solid #ffeeba; padding: 8px 24px; font-size: 11px; color: #856404; display: none; }
+.debug-bar.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📊 商机看板<span id="dateLabel"></span></h1>
+  <div class="header-right">
+    <button class="btn" onclick="forceReload()">🔄</button>
+    <button class="btn" onclick="exportData()">📤</button>
+  </div>
+</div>
+
+<div class="debug-bar" id="debugBar"></div>
+
+<div class="board">
+  <div>
+    <div class="col-header left-hd">
+      <div class="col-title" style="color:#f5a623">🟡 待跟进</div>
+      <div class="col-count" id="countPending">0</div>
+    </div>
+    <div id="colPending"></div>
+  </div>
+  <div>
+    <div class="col-header right-hd">
+      <div class="col-title" style="color:#2d3a8c">🔵 已跟进</div>
+      <div class="col-count" id="countFollowed">0</div>
+    </div>
+    <div id="colFollowed"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var BJ = 8 * 3600000;
+
+// 获取北京时间"今天"的日期对象（00:00:00 北京时间）
+function todayBJ() {
+  var now = new Date();
+  var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + BJ);
+}
+
+// 获取北京时间"昨天"的日期字符串，用于比较 MM-DD
+function yesterdayStr() {
+  var t = todayBJ();
+  t.setDate(t.getDate() - 1);
+  var m = ('0' + (t.getMonth() + 1)).slice(-2);
+  var d = ('0' + t.getDate()).slice(-2);
+  return m + '-' + d;
+}
+
+// 判定时间戳是否属于"昨天"（北京时间昨天整天）
+function isYesterday(ts) {
+  var d = new Date(ts * 1000);
+  var m = ('0' + (d.getMonth() + 1)).slice(-2);
+  var day = ('0' + d.getDate()).slice(-2);
+  return m + '-' + day === yesterdayStr();
+}
+
+// 格式化时间戳→MM-DD HH:mm
+function fmtTime(ts) {
+  var d = new Date(ts * 1000);
+  var m = ('0' + (d.getMonth() + 1)).slice(-2);
+  var day = ('0' + d.getDate()).slice(-2);
+  var h = ('0' + d.getHours()).slice(-2);
+  var mi = ('0' + d.getMinutes()).slice(-2);
+  return m + '-' + day + ' ' + h + ':' + mi;
+}
+
+function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function showDebug(msg) {
+  document.getElementById('debugBar').textContent = msg;
+  document.getElementById('debugBar').classList.add('show');
+}
+
+function loadLocal() {
+  try { return JSON.parse(localStorage.getItem('leads_board') || '[]'); } catch(e) { return []; }
+}
+function saveLocal(data) { localStorage.setItem('leads_board', JSON.stringify(data)); }
+
+function cardHtml(l, idx) {
+  var realIdx = l.renderIdx !== undefined ? l.renderIdx : idx;
+  var action = l.status === 'pending'
+    ? '<button class="btn-action btn-transfer" onclick="transferToFollowed('+realIdx+')">✅ 核销 →</button>'
+    : '<button class="btn-action btn-undo" onclick="undoToPending('+realIdx+')">↩ 退回</button>';
+  var urlBlock = l.postUrl
+    ? '<div style="margin-bottom:6px;"><a href="'+l.postUrl+'" target="_blank" class="meta" style="color:#2d3a8c;font-size:11px;text-decoration:none;">🔗 查看原文</a></div>'
+    : '';
+  return '<div class="lead-card">' +
+    urlBlock +
+    '<div class="text">'+esc(l.text)+'</div>' +
+    '<div class="meta">'+fmtTime(l.time)+'</div>' +
+    '<div class="footer">'+action+'</div>' +
+    '</div>';
+}
+
+function render(all) {
+  all.forEach(function(l, i){ l.renderIdx = i; });
+  var pending = all.filter(function(l){ return l.status === 'pending'; });
+  var followed = all.filter(function(l){ return l.status === 'followed'; });
+  document.getElementById('countPending').textContent = pending.length;
+  document.getElementById('countFollowed').textContent = followed.length;
+  document.getElementById('colPending').innerHTML = pending.length === 0
+    ? '<div class="empty-col">暂无待跟进帖子</div>'
+    : pending.map(function(l){ return cardHtml(l, -1); }).join('');
+  document.getElementById('colFollowed').innerHTML = followed.length === 0
+    ? '<div class="empty-col">暂无已跟进帖子</div>'
+    : followed.map(function(l){ return cardHtml(l, -1); }).join('');
+}
+
+function transferToFollowed(idx) {
+  var all = loadLocal();
+  var item = all.find(function(l){ return l.renderIdx === idx; });
+  if (item) { item.status = 'followed'; saveLocal(all); }
+  loadAndFilter();
+}
+function undoToPending(idx) {
+  var all = loadLocal();
+  var item = all.find(function(l){ return l.renderIdx === idx; });
+  if (item) { item.status = 'pending'; saveLocal(all); }
+  loadAndFilter();
+}
+
+function loadAndFilter() {
+  var all = loadLocal();
+  var yd = yesterdayStr();
+  var yesterday = all.filter(function(l){
+    var d = new Date(l.time * 1000);
+    var m = ('0'+(d.getMonth()+1)).slice(-2);
+    var day = ('0'+d.getDate()).slice(-2);
+    return m+'-'+day === yd;
+  });
+  showDebug('前日 '+yd+' 共 '+yesterday.length+' 条');
+  render(yesterday);
+  document.getElementById('dateLabel').textContent = yd.slice(0,2)+'月'+yd.slice(3)+'日';
+}
+
+function fetchFromServer() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', 'leads_board.json?t=' + Date.now());
+  xhr.timeout = 12000;
+  xhr.onload = function() {
+    if (xhr.status !== 200) {
+      showDebug('❌ 请求失败 status=' + xhr.status + '，改用本地缓存');
+      loadAndFilter();
+      return;
+    }
+    try {
+      var serverData = JSON.parse(xhr.responseText) || [];
+      showDebug('✅ 服务器返回 ' + serverData.length + ' 条记录');
+      var localData  = loadLocal();
+      var localStatus = {};
+      localData.forEach(function(l){ localStatus[l.id] = l.status; });
+      serverData.forEach(function(l){
+        if (localStatus[l.id]) l.status = localStatus[l.id];
+      });
+      saveLocal(serverData);
+      loadAndFilter();
+    } catch(e) {
+      showDebug('❌ JSON解析失败: ' + e + '，改用本地缓存');
+      loadAndFilter();
+    }
+  };
+  xhr.onerror = function() {
+    showDebug('❌ 网络错误，改用本地缓存');
+    loadAndFilter();
+  };
+  xhr.ontimeout = function() {
+    showDebug('❌ 请求超时，改用本地缓存');
+    loadAndFilter();
+  };
+  xhr.send();
+}
+
+function forceReload() {
+  localStorage.removeItem('leads_board');
+  showDebug('已清除本地缓存，正在重新请求服务器…');
+  fetchFromServer();
+}
+
+function exportData() {
+  var all = loadLocal().filter(function(l){ return isYesterday(l.time); });
+  var txt = '时间\t状态\t内容\n';
+  all.forEach(function(l){
+    txt += fmtTime(l.time) + '\t' + l.status + '\t' + l.text + '\n';
+  });
+  var ta = document.createElement('textarea');
+  ta.value = txt;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  var t = document.getElementById('toast');
+  t.textContent = '已复制到剪贴板';
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2000);
+}
+
+// ===== 视图状态 =====
+var currentView = 'yesterday'; // 'yesterday' | 'all'
+
+function viewFilter(all) {
+  var yd = yesterdayStr();
+  if (currentView === 'yesterday') {
+    return all.filter(function(l){
+      var d = new Date(l.time * 1000);
+      var m = ('0'+(d.getMonth()+1)).slice(-2);
+      var day = ('0'+d.getDate()).slice(-2);
+      return m+'-'+day === yd;
+    });
+  }
+  return all;
+}
+
+// ===== 渲染 =====
+function render(data) {
+  var pending = data.filter(function(l){ return l.status === 'pending'; });
+  var followed = data.filter(function(l){ return l.status === 'followed'; });
+  document.getElementById('countPending').textContent = pending.length;
+  document.getElementById('countFollowed').textContent = followed.length;
+
+  function card(item, realIdx) {
+    var action = item.status === 'pending'
+      ? '<button class="btn-action btn-transfer" onclick="transferToFollowed('+realIdx+')">✅ 核销 →</button>'
+      : '<button class="btn-action btn-undo" onclick="undoToPending('+realIdx+')">↩ 退回</button>';
+    var url = item.post_url || item.postUrl || '';
+    var urlBlock = url ? '<div><a href="'+url+'" target="_blank" class="meta" style="color:#2d3a8c;font-size:11px;text-decoration:none;">🔗 查看原文</a></div>' : '';
+    var grp = item.group || '';
+    return '<div class="lead-card">'+urlBlock+
+      '<div class="text">'+esc(grp?'['+grp+'] ':''+item.text)+'</div>'+
+      '<div class="meta">'+fmtTime(item.time)+'</div>'+
+      '<div class="footer">'+action+'</div></div>';
+  }
+
+  document.getElementById('colPending').innerHTML = pending.length===0
+    ? '<div class="empty-col">暂无待跟进</div>'
+    : pending.map(function(it){ return card(it, it._idx); }).join('');
+  document.getElementById('colFollowed').innerHTML = followed.length===0
+    ? '<div class="empty-col">暂无已跟进</div>'
+    : followed.map(function(it){ return card(it, it._idx); }).join('');
+}
+
+// ===== 加载 & 筛选 =====
+function loadAndFilter() {
+  var all = loadLocal();
+  all.forEach(function(it, i){ it._idx = i; });
+  var filtered = viewFilter(all);
+  var yd = yesterdayStr();
+  var label = currentView==='yesterday' ? '前日 '+yd+' 共 '+filtered.length+' 条' : '全部 '+all.length+' 条';
+  showDebug(label);
+  document.getElementById('dateLabel').textContent = currentView==='yesterday'
+    ? yd.slice(0,2)+'月'+yd.slice(3)+'日'
+    : '全部数据';
+  render(filtered);
+}
+
+// ===== 状态操作 =====
+function findByIdx(idx) {
+  var all = loadLocal();
+  return all.find(function(it){ return it._idx === idx; });
+}
+
+function transferToFollowed(idx) {
+  var all = loadLocal();
+  var it = findByIdx(idx);
+  if (it) { it.status = 'followed'; saveLocal(all); }
+  loadAndFilter();
+}
+
+function undoToPending(idx) {
+  var all = loadLocal();
+  var it = findByIdx(idx);
+  if (it) { it.status = 'pending'; saveLocal(all); }
+  loadAndFilter();
+}
+
+// ===== 网络 =====
+function fetchFromServer() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', 'leads_board.json?t=' + Date.now());
+  xhr.timeout = 12000;
+  xhr.onload = function() {
+    if (xhr.status !== 200) { showDebug('❌ 网络错误'); loadAndFilter(); return; }
+    try {
+      var fresh = JSON.parse(xhr.responseText) || [];
+      var local = loadLocal();
+      var savedStatus = {};
+      local.forEach(function(it){ savedStatus[it.id] = it.status; });
+      fresh.forEach(function(it){ if (savedStatus[it.id]) it.status = savedStatus[it.id]; });
+      saveLocal(fresh);
+      showDebug('✅ 获取 '+fresh.length+' 条');
+      loadAndFilter();
+    } catch(e) { showDebug('❌ 解析失败'); loadAndFilter(); }
+  };
+  xhr.onerror = function() { showDebug('❌ 连接失败'); loadAndFilter(); };
+  xhr.ontimeout = function() { showDebug('❌ 请求超时'); loadAndFilter(); };
+  xhr.send();
+}
+
+function forceReload() {
+  showDebug('刷新中...');
+  fetchFromServer();
+}
+
+// ===== 导出 =====
+function exportData() {
+  var all = loadLocal();
+  var filtered = viewFilter(all);
+  var lines = ['时间\t状态\t群组\t内容'];
+  filtered.forEach(function(it){
+    lines.push(fmtTime(it.time)+'\t'+it.status+'\t'+(it.group||'')+'\t'+it.text);
+  });
+  var ta = document.createElement('textarea');
+  ta.value = lines.join('\n');
+  document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+  document.body.removeChild(ta);
+  var t = document.getElementById('toast');
+  t.textContent = '已复制 '+filtered.length+' 条'; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2000);
+}
+
+// ===== Init =====
+today = todayBJ();
+currentView = 'yesterday';
+document.getElementById('dateLabel').textContent = yesterdayStr().slice(0,2)+'月'+yesterdayStr().slice(3)+'日';
+fetchFromServer();
+</script>
+</body>
+</html>
