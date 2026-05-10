@@ -266,31 +266,29 @@ function render(data) {
   document.getElementById('countPending').textContent = pending.length;
   document.getElementById('countFollowed').textContent = followed.length;
 
-  function card(item, realIdx) {
+  function card(item) {
     var action = item.status === 'pending'
-      ? '<button class="btn-action btn-transfer" onclick="transferToFollowed('+realIdx+')">✅ 核销 →</button>'
-      : '<button class="btn-action btn-undo" onclick="undoToPending('+realIdx+')">↩ 退回</button>';
+      ? '<button class="btn-action btn-transfer" onclick="transferToFollowed(\''+item.id+'\')">✅ 核销 →</button>'
+      : '<button class="btn-action btn-undo" onclick="undoToPending(\''+item.id+'\')">↩ 退回</button>';
     var url = item.post_url || item.postUrl || '';
     var urlBlock = url ? '<div><a href="'+url+'" target="_blank" class="meta" style="color:#2d3a8c;font-size:11px;text-decoration:none;">🔗 查看原文</a></div>' : '';
-    var grp = item.group || '';
     return '<div class="lead-card">'+urlBlock+
-      '<div class="text">'+esc(grp?'['+grp+'] ':''+item.text)+'</div>'+
+      '<div class="text">'+esc((item.group?'['+item.group+'] ':'')+item.text)+'</div>'+
       '<div class="meta">'+fmtTime(item.time)+'</div>'+
       '<div class="footer">'+action+'</div></div>';
   }
 
   document.getElementById('colPending').innerHTML = pending.length===0
     ? '<div class="empty-col">暂无待跟进</div>'
-    : pending.map(function(it){ return card(it, it._idx); }).join('');
+    : pending.map(card).join('');
   document.getElementById('colFollowed').innerHTML = followed.length===0
     ? '<div class="empty-col">暂无已跟进</div>'
-    : followed.map(function(it){ return card(it, it._idx); }).join('');
+    : followed.map(card).join('');
 }
 
 // ===== 加载 & 筛选 =====
 function loadAndFilter() {
   var all = loadLocal();
-  all.forEach(function(it, i){ it._idx = i; });
   var filtered = viewFilter(all);
   var yd = yesterdayStr();
   var label = currentView==='yesterday' ? '前日 '+yd+' 共 '+filtered.length+' 条' : '全部 '+all.length+' 条';
@@ -301,22 +299,17 @@ function loadAndFilter() {
   render(filtered);
 }
 
-// ===== 状态操作 =====
-function findByIdx(idx) {
+// ===== 状态操作（按 id 精确查找）=====
+function transferToFollowed(id) {
   var all = loadLocal();
-  return all.find(function(it){ return it._idx === idx; });
-}
-
-function transferToFollowed(idx) {
-  var all = loadLocal();
-  var it = findByIdx(idx);
+  var it = all.find(function(x){ return x.id === id; });
   if (it) { it.status = 'followed'; saveLocal(all); }
   loadAndFilter();
 }
 
-function undoToPending(idx) {
+function undoToPending(id) {
   var all = loadLocal();
-  var it = findByIdx(idx);
+  var it = all.find(function(x){ return x.id === id; });
   if (it) { it.status = 'pending'; saveLocal(all); }
   loadAndFilter();
 }
